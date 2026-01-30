@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional Invoice Manager</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600&family=Roboto+Mono&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- HTML2Canvas & JSPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Custom Scrollbar for the editor panel */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* A4 Paper Simulation */
+        .a4-paper {
+            width: 210mm;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.2);
+            margin: 0 auto;
+            position: relative;
+            /* Default styles that can be overridden by JS */
+            --theme-color: #2563eb; 
+            --heading-font: 'Inter', sans-serif;
+        }
+
+        /* Print styles */
+        @media print {
+            body * { visibility: hidden; }
+            #preview-container, #preview-container * { visibility: visible; }
+            #preview-container { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; box-shadow: none; }
+            .a4-paper { box-shadow: none; width: 100%; height: auto; }
+            .no-print { display: none !important; }
+        }
+
+        /* Template: Spreadsheet Mode */
+        .template-spreadsheet .item-row { border-bottom: 1px solid #e2e8f0; }
+        .template-spreadsheet .header-row { background-color: #f8fafc; border-top: 2px solid var(--theme-color); border-bottom: 2px solid var(--theme-color); }
+        .template-spreadsheet .cell { border-right: 1px solid #f1f5f9; padding: 8px; }
+        
+        /* Template: Compact Mode */
+        .template-compact { padding: 20mm !important; font-size: 0.9em; }
+        .template-compact .logo-area { height: 60px; }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden">
+
+    <!-- Sidebar removed -->
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0">
+        
+        <!-- Header -->
+        <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
+            <!-- Brand Logo -->
+            <div class="flex items-center gap-2 font-bold text-xl text-slate-800">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                    <i data-lucide="file-text" class="w-5 h-5 text-white"></i>
+                </div>
+                LS Invoice
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center gap-3">
+                <button class="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors relative">
+                    <i data-lucide="bell" class="w-5 h-5"></i>
+                    <span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+                </button>
+                <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm" onclick="downloadPDF()">
+                    <i data-lucide="download" class="w-4 h-4"></i> Export PDF
+                </button>
+            </div>
+        </header>
+
+        <!-- Workspace: Editor + Preview -->
+        <div class="flex-1 flex overflow-hidden">
+            
+            <!-- Left Panel: Configuration & Editor -->
+            <div class="w-5/12 bg-white border-r border-gray-200 overflow-y-auto custom-scroll flex flex-col">
+                <div class="p-6 space-y-8">
+                    
+                    <!-- Design Controls -->
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Customization</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Theme Color</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="color" id="themeColor" value="#2563eb" class="w-8 h-8 rounded cursor-pointer border-0 p-0" oninput="updateTheme()">
+                                    <span class="text-xs text-gray-500" id="colorValue">#2563eb</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Currency</label>
+                                <select id="currencySelect" onchange="updateCurrency()" class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
+                                    <option value="$">USD ($)</option>
+                                    <option value="₹">INR (₹)</option>
+                                    <option value="€">EUR (€)</option>
+                                    <option value="£">GBP (£)</option>
+                                    <option value="¥">JPY (¥)</option>
+                                    <option value="CA$">CAD ($)</option>
+                                    <option value="AU$">AUD ($)</option>
+                                    <option value="AED ">AED</option>
+                                </select>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Logo</label>
+                                <label class="cursor-pointer flex items-center justify-center gap-2 px-3 py-2 bg-white border border-dashed border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 text-gray-600 w-full transition-colors">
+                                    <i data-lucide="upload" class="w-3 h-3"></i> Upload Organization Logo
+                                    <input type="file" id="logoUpload" accept="image/*" class="hidden" onchange="handleLogoUpload(this)">
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Invoice Header Fields -->
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Invoice Details</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                                <input type="text" id="invNumber" value="INV-2024-001" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" oninput="updatePreviewText('displayInvNumber', this.value)">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input type="date" id="invDate" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" oninput="updatePreviewText('displayDate', this.value)">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">From (You)</label>
+                                <textarea id="fromDetails" rows="3" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" oninput="updatePreviewText('displayFrom', this.value.replace(/\n/g, '<br>'))">Acme Corp Inc.&#13;&#10;123 Business Rd&#13;&#10;New York, NY 10012</textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Bill To (Client)</label>
+                                <textarea id="toDetails" rows="3" class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" oninput="updatePreviewText('displayTo', this.value.replace(/\n/g, '<br>'))">John Doe&#13;&#10;456 Client Avenue&#13;&#10;San Francisco, CA 94103</textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Items Editor -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-lg font-semibold text-gray-800">Items</h3>
+                            <button onclick="addItem()" class="text-blue-600 text-sm font-medium hover:underline flex items-center gap-1">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Add Item
+                            </button>
+                        </div>
+                        <div id="items-editor-list" class="space-y-3">
+                            <!-- Items will be injected here via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Totals Editor -->
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <label class="text-sm text-gray-600">Tax (%)</label>
+                            <input type="number" id="taxRate" value="10" class="w-20 px-2 py-1 text-right text-sm border rounded" oninput="calculateTotals()">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <label class="text-sm text-gray-600">Discount ($)</label>
+                            <input type="number" id="discountVal" value="0" class="w-20 px-2 py-1 text-right text-sm border rounded" oninput="calculateTotals()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Live Preview -->
+            <div class="w-7/12 bg-gray-200 overflow-y-auto custom-scroll p-8 flex justify-center">
+                
+                <!-- The Paper -->
+                <div id="preview-paper" class="a4-paper p-12 flex flex-col justify-between transition-all duration-300">
+                    
+                    <!-- Content Wrapper -->
+                    <div>
+                        <!-- Header Section -->
+                        <div class="flex justify-between items-start mb-12">
+                            <div class="w-1/2">
+                                <img id="displayLogo" src="" alt="Logo" class="h-16 w-auto object-contain mb-4 hidden">
+                                <div id="displayFrom" class="text-sm text-gray-500 leading-relaxed">
+                                    Acme Corp Inc.<br>123 Business Rd<br>New York, NY 10012
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <h1 class="text-4xl font-bold text-[var(--theme-color)] mb-2" style="color: var(--theme-color);">INVOICE</h1>
+                                <p class="text-gray-500 font-medium text-lg" id="displayInvNumber">#INV-2024-001</p>
+                                <p class="text-gray-400 text-sm mt-1">Date: <span id="displayDate">2024-01-30</span></p>
+                            </div>
+                        </div>
+
+                        <!-- Bill To Section -->
+                        <div class="mb-10">
+                            <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Bill To</h2>
+                            <div id="displayTo" class="text-lg font-medium text-gray-800 leading-snug">
+                                John Doe<br>456 Client Avenue<br>San Francisco, CA 94103
+                            </div>
+                        </div>
+
+                        <!-- Table -->
+                        <div class="mb-8">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b-2 border-[var(--theme-color)]" style="border-color: var(--theme-color);">
+                                        <th class="py-3 text-sm font-semibold text-gray-600 w-1/2">Description</th>
+                                        <th class="py-3 text-sm font-semibold text-gray-600 text-right">Qty</th>
+                                        <th class="py-3 text-sm font-semibold text-gray-600 text-right">Price</th>
+                                        <th class="py-3 text-sm font-semibold text-gray-600 text-right">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="preview-items-body">
+                                    <!-- Rows injected via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Totals -->
+                        <div class="flex justify-end">
+                            <div class="w-1/2 space-y-2">
+                                <div class="flex justify-between text-gray-600 text-sm">
+                                    <span>Subtotal</span>
+                                    <span id="displaySubtotal">$0.00</span>
+                                </div>
+                                <div class="flex justify-between text-gray-600 text-sm">
+                                    <span>Tax (<span id="displayTaxRate">10</span>%)</span>
+                                    <span id="displayTaxAmt">$0.00</span>
+                                </div>
+                                <div class="flex justify-between text-gray-600 text-sm">
+                                    <span>Discount</span>
+                                    <span id="displayDiscount">-$0.00</span>
+                                </div>
+                                <div class="flex justify-between text-xl font-bold text-gray-800 pt-3 border-t border-gray-200 mt-2">
+                                    <span>Total</span>
+                                    <span id="displayTotal" style="color: var(--theme-color);">$0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="text-center text-gray-400 text-sm mt-12 border-t border-gray-100 pt-6">
+                        <p>Thank you for your business!</p>
+                        <p class="text-xs mt-1">Payment is due within 15 days.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- Logic Script -->
+    <script>
+        // State
+        let items = [
+            { id: 1, desc: "Web Development Services", qty: 1, price: 1500.00 },
+            { id: 2, desc: "Server Maintenance (Yearly)", qty: 1, price: 300.00 }
+        ];
+        
+        let currencySymbol = '$';
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set today's date
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('invDate').value = today;
+            updatePreviewText('displayDate', today);
+            
+            lucide.createIcons();
+            renderItems();
+            calculateTotals();
+        });
+
+        function updateCurrency() {
+            currencySymbol = document.getElementById('currencySelect').value;
+            // Update items table and totals to reflect new currency
+            renderItems(); // Re-render table to update symbols
+            calculateTotals(); // Re-calculate totals to update symbols
+        }
+
+        // 1. Core Logic: Render Items List (Both Editor and Preview)
+        function renderItems() {
+            const editorList = document.getElementById('items-editor-list');
+            const previewBody = document.getElementById('preview-items-body');
+            
+            editorList.innerHTML = '';
+            previewBody.innerHTML = '';
+
+            items.forEach((item, index) => {
+                // Editor Row
+                const editorRow = document.createElement('div');
+                editorRow.className = 'grid grid-cols-12 gap-2 items-start bg-white p-3 rounded-lg border border-gray-100 shadow-sm';
+                editorRow.innerHTML = `
+                    <div class="col-span-6">
+                        <input type="text" value="${item.desc}" class="w-full text-sm border-b border-gray-200 focus:border-blue-500 focus:outline-none py-1" placeholder="Description" oninput="updateItem(${index}, 'desc', this.value)">
+                    </div>
+                    <div class="col-span-2">
+                        <input type="number" value="${item.qty}" class="w-full text-sm border-b border-gray-200 focus:border-blue-500 focus:outline-none py-1 text-right" placeholder="Qty" oninput="updateItem(${index}, 'qty', this.value)">
+                    </div>
+                    <div class="col-span-3">
+                        <input type="number" value="${item.price}" class="w-full text-sm border-b border-gray-200 focus:border-blue-500 focus:outline-none py-1 text-right" placeholder="Price" oninput="updateItem(${index}, 'price', this.value)">
+                    </div>
+                    <div class="col-span-1 flex justify-end">
+                        <button onclick="deleteItem(${index})" class="text-red-400 hover:text-red-600 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    </div>
+                `;
+                editorList.appendChild(editorRow);
+
+                // Preview Row
+                const total = item.qty * item.price;
+                const previewRow = document.createElement('tr');
+                previewRow.className = 'border-b border-gray-100 last:border-0';
+                previewRow.innerHTML = `
+                    <td class="py-3 text-sm text-gray-700">${item.desc}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">${item.qty}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">${currencySymbol}${parseFloat(item.price).toFixed(2)}</td>
+                    <td class="py-3 text-sm font-medium text-gray-800 text-right">${currencySymbol}${total.toFixed(2)}</td>
+                `;
+                previewBody.appendChild(previewRow);
+            });
+
+            // Re-init icons for the newly added delete buttons
+            lucide.createIcons();
+        }
+
+        // 2. Data Handlers
+        function addItem() {
+            items.push({ id: Date.now(), desc: "", qty: 1, price: 0 });
+            renderItems();
+            calculateTotals();
+        }
+
+        function deleteItem(index) {
+            items.splice(index, 1);
+            renderItems();
+            calculateTotals();
+        }
+
+        function updateItem(index, field, value) {
+            items[index][field] = field === 'desc' ? value : parseFloat(value) || 0;
+            // Debounce re-render for performance could be added here, 
+            // but for this scale, direct render is fine.
+            // We only update the specific preview row to keep input focus in editor
+            renderItems(); 
+            // Note: In a full React app we'd have better state diffing. 
+            // Here, re-rendering list might lose focus if not careful. 
+            // To fix focus loss in vanilla JS: We will just calculate totals, 
+            // and rely on the fact that 'renderItems' reconstructs DOM.
+            // *Optimization*: For this demo, let's just calc totals and update preview text nodes directly without full re-render if possible?
+            // No, full re-render is safest for consistency. To fix focus:
+            // We won't re-render the *Editor* list on every keystroke, only the Preview list.
+            updatePreviewRowsOnly();
+            calculateTotals();
+        }
+        
+        // Helper: Only update preview table to prevent Editor input focus loss
+        function updatePreviewRowsOnly() {
+             const previewBody = document.getElementById('preview-items-body');
+             previewBody.innerHTML = '';
+             items.forEach(item => {
+                const total = item.qty * item.price;
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-100 last:border-0';
+                tr.innerHTML = `
+                    <td class="py-3 text-sm text-gray-700">${item.desc}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">${item.qty}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">${currencySymbol}${parseFloat(item.price).toFixed(2)}</td>
+                    <td class="py-3 text-sm font-medium text-gray-800 text-right">${currencySymbol}${total.toFixed(2)}</td>
+                `;
+                previewBody.appendChild(tr);
+             });
+        }
+
+
+        // 3. Calculation Logic
+        function calculateTotals() {
+            const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+            
+            const taxRate = parseFloat(document.getElementById('taxRate').value) || 0;
+            const discountVal = parseFloat(document.getElementById('discountVal').value) || 0;
+            
+            const taxAmt = subtotal * (taxRate / 100);
+            const total = subtotal + taxAmt - discountVal;
+
+            document.getElementById('displaySubtotal').innerText = `${currencySymbol}${subtotal.toFixed(2)}`;
+            document.getElementById('displayTaxRate').innerText = taxRate;
+            document.getElementById('displayTaxAmt').innerText = `${currencySymbol}${taxAmt.toFixed(2)}`;
+            document.getElementById('displayDiscount').innerText = `-${currencySymbol}${discountVal.toFixed(2)}`;
+            document.getElementById('displayTotal').innerText = `${currencySymbol}${total.toFixed(2)}`;
+        }
+
+        // 2. Data Handlers
+        function addItem() {
+            items.push({ id: Date.now(), desc: "", qty: 1, price: 0 });
+            renderItems();
+            calculateTotals();
+        }
+
+        function deleteItem(index) {
+            items.splice(index, 1);
+            renderItems();
+            calculateTotals();
+        }
+
+        function updateItem(index, field, value) {
+            items[index][field] = field === 'desc' ? value : parseFloat(value) || 0;
+            // Debounce re-render for performance could be added here, 
+            // but for this scale, direct render is fine.
+            // We only update the specific preview row to keep input focus in editor
+            renderItems(); 
+            // Note: In a full React app we'd have better state diffing. 
+            // Here, re-rendering list might lose focus if not careful. 
+            // To fix focus loss in vanilla JS: We will just calculate totals, 
+            // and rely on the fact that 'renderItems' reconstructs DOM.
+            // *Optimization*: For this demo, let's just calc totals and update preview text nodes directly without full re-render if possible?
+            // No, full re-render is safest for consistency. To fix focus:
+            // We won't re-render the *Editor* list on every keystroke, only the Preview list.
+            updatePreviewRowsOnly();
+            calculateTotals();
+        }
+        
+        // Helper: Only update preview table to prevent Editor input focus loss
+        function updatePreviewRowsOnly() {
+             const previewBody = document.getElementById('preview-items-body');
+             previewBody.innerHTML = '';
+             items.forEach(item => {
+                const total = item.qty * item.price;
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-100 last:border-0';
+                tr.innerHTML = `
+                    <td class="py-3 text-sm text-gray-700">${item.desc}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">${item.qty}</td>
+                    <td class="py-3 text-sm text-gray-600 text-right">$${parseFloat(item.price).toFixed(2)}</td>
+                    <td class="py-3 text-sm font-medium text-gray-800 text-right">$${total.toFixed(2)}</td>
+                `;
+                previewBody.appendChild(tr);
+             });
+        }
+
+
+        // 3. Calculation Logic
+        function calculateTotals() {
+            const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+            
+            const taxRate = parseFloat(document.getElementById('taxRate').value) || 0;
+            const discountVal = parseFloat(document.getElementById('discountVal').value) || 0;
+            
+            const taxAmt = subtotal * (taxRate / 100);
+            const total = subtotal + taxAmt - discountVal;
+
+            document.getElementById('displaySubtotal').innerText = `$${subtotal.toFixed(2)}`;
+            document.getElementById('displayTaxRate').innerText = taxRate;
+            document.getElementById('displayTaxAmt').innerText = `$${taxAmt.toFixed(2)}`;
+            document.getElementById('displayDiscount').innerText = `-$${discountVal.toFixed(2)}`;
+            document.getElementById('displayTotal').innerText = `$${total.toFixed(2)}`;
+        }
+
+        // 4. UI Updates
+        function updatePreviewText(elementId, value) {
+            document.getElementById(elementId).innerHTML = value;
+        }
+
+        function updateTheme() {
+            const color = document.getElementById('themeColor').value;
+            document.getElementById('preview-paper').style.setProperty('--theme-color', color);
+            document.getElementById('colorValue').innerText = color;
+        }
+
+        function handleLogoUpload(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.getElementById('displayLogo');
+                    img.src = e.target.result;
+                    img.classList.remove('hidden');
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        // 5. PDF Generation
+        async function downloadPDF() {
+            const element = document.getElementById('preview-paper');
+            const btn = document.querySelector('button[onclick="downloadPDF()"]');
+            const originalText = btn.innerHTML;
+            
+            try {
+                btn.innerHTML = 'Generating...';
+                btn.disabled = true;
+
+                // High quality capture
+                const canvas = await html2canvas(element, {
+                    scale: 2, // Higher resolution
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                });
+
+                const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                
+                // A4 dimensions in mm
+                const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const imgWidth = canvas.width;
+                const imgHeight = canvas.height;
+                
+                // Calculate ratio to fit width
+                const ratio = pdfWidth / imgWidth;
+                const displayHeight = imgHeight * ratio;
+
+                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, displayHeight);
+                pdf.save(`Invoice-${document.getElementById('invNumber').value}.pdf`);
+
+            } catch (err) {
+                console.error("PDF Gen Error:", err);
+                alert("Error generating PDF. Please try again.");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
